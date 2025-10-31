@@ -25,3 +25,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# git sync temp files
+.git-sync-temp/
+
+# data storage
+data/*.json
+!data/.gitkeep

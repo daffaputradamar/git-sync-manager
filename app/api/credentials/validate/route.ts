@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { validateGitCredentials } from "@/lib/git-sync"
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,31 +10,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Simulate credential validation
-    // In a real implementation, this would:
-    // 1. Attempt to authenticate with the provided credentials
-    // 2. For GitHub: Use GitHub API with token
-    // 3. For TFS: Use TFS API with username/token
-    // 4. Return validation result
+    // For GitHub, use api.github.com URL if not provided
+    const validationUrl = url || (type === "github" ? "https://github.com" : "")
 
-    const isValid = Math.random() > 0.3 // 70% success rate for demo
+    if (!validationUrl) {
+      return NextResponse.json({ error: "URL is required for TFS credentials" }, { status: 400 })
+    }
 
-    if (isValid) {
+    // Validate credentials by attempting to connect
+    const result = await validateGitCredentials(validationUrl, username, token, type)
+
+    if (result.valid) {
       return NextResponse.json({
         valid: true,
-        message: "Credentials are valid",
+        message: result.message,
       })
     } else {
       return NextResponse.json(
         {
           valid: false,
-          message: "Invalid credentials",
+          message: result.message,
         },
         { status: 401 },
       )
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Validation error:", error)
-    return NextResponse.json({ error: "Validation failed" }, { status: 500 })
+    return NextResponse.json(
+      {
+        valid: false,
+        error: "Validation failed",
+        message: error.message || "Unknown error",
+      },
+      { status: 500 },
+    )
   }
 }

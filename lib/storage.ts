@@ -1,34 +1,97 @@
-// JSON-based storage utilities
+// JSON file-based storage utilities
 
-const STORAGE_KEY = "git-sync-manager-data"
+import fs from "node:fs"
+import path from "node:path"
+import type { AppData, Project, Credential, Repository, ScheduledJob } from "./types"
+
+const DATA_DIR = path.join(process.cwd(), "data")
+const DATA_FILE = path.join(DATA_DIR, "storage.json")
 
 const defaultData: AppData = {
   projects: [],
   credentials: [],
-  syncLogs: [],
   scheduledJobs: [],
 }
 
-import type { AppData, Project, Credential, Repository, SyncLog, ScheduledJob } from "./types"
+// Ensure data directory exists
+function ensureDataDir(): void {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+  }
+}
 
+// Load data from JSON file
 export function loadData(): AppData {
-  if (typeof window === "undefined") return defaultData
-
   try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : defaultData
-  } catch {
+    ensureDataDir()
+
+    if (!fs.existsSync(DATA_FILE)) {
+      // Initialize with default data
+      saveData(defaultData)
+      return defaultData
+    }
+
+    const fileContent = fs.readFileSync(DATA_FILE, "utf-8")
+    const data = JSON.parse(fileContent) as AppData
+    
+    // Migrate old scheduled jobs with repositoryId to repositoryIds
+    // and schedule to cronExpression
+    if (data.scheduledJobs) {
+      let needsSave = false
+      data.scheduledJobs = data.scheduledJobs.map((job: any) => {
+        // Migrate repositoryId to repositoryIds
+        if (job.repositoryId && !job.repositoryIds) {
+          console.log(`[Migration] Converting job ${job.id} from repositoryId to repositoryIds`)
+          needsSave = true
+          job.repositoryIds = [job.repositoryId]
+          delete job.repositoryId
+        }
+        
+        // Ensure repositoryIds is always an array
+        if (!job.repositoryIds) {
+          job.repositoryIds = []
+          needsSave = true
+        }
+        
+        // Migrate schedule to cronExpression
+        if (job.schedule && !job.cronExpression) {
+          console.log(`[Migration] Converting job ${job.id} from schedule to cronExpression`)
+          needsSave = true
+          job.cronExpression = job.schedule
+          delete job.schedule
+        }
+        
+        // Ensure cronExpression has a default value
+        if (!job.cronExpression) {
+          console.log(`[Migration] Setting default cronExpression for job ${job.id}`)
+          job.cronExpression = "0 0 * * *" // Default: daily at midnight
+          needsSave = true
+        }
+        
+        return job
+      })
+      
+      if (needsSave) {
+        console.log("[Migration] Saving migrated data")
+        saveData(data)
+      }
+    }
+    
+    return data
+  } catch (error) {
+    console.error("Failed to load data:", error)
     return defaultData
   }
 }
 
+// Save data to JSON file
 export function saveData(data: AppData): void {
-  if (typeof window === "undefined") return
-
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+    ensureDataDir()
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8")
   } catch (error) {
     console.error("Failed to save data:", error)
+    throw error
   }
 }
 
@@ -142,35 +205,15 @@ export function deleteRepository(projectId: string, repoId: string): boolean {
   return true
 }
 
-// Sync log operations
-export function createSyncLog(
-  repositoryId: string,
-  status: "success" | "failed" | "in-progress",
-  message: string,
-  changes?: { added: number; modified: number; deleted: number },
-): SyncLog {
-  const data = loadData()
-  const log: SyncLog = {
-    id: Date.now().toString(),
-    repositoryId,
-    status,
-    startedAt: new Date().toISOString(),
-    message,
-    changes,
-  }
-  data.syncLogs.push(log)
-  saveData(data)
-  return log
-}
-
 // Scheduled job operations
-export function createScheduledJob(repositoryId: string, name: string, schedule: string): ScheduledJob {
+export function createScheduledJob(projectId: string, repositoryIds: string[], name: string, cronExpression: string): ScheduledJob {
   const data = loadData()
   const job: ScheduledJob = {
     id: Date.now().toString(),
-    repositoryId,
+    projectId,
+    repositoryIds,
     name,
-    schedule,
+    cronExpression,
     enabled: true,
     createdAt: new Date().toISOString(),
   }

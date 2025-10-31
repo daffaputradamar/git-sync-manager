@@ -5,10 +5,13 @@ import { useParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { loadData, addRepository, deleteRepository } from "@/lib/storage"
+import { loadData, deleteRepository } from "@/lib/storage-client"
 import type { AppData, Project } from "@/lib/types"
-import { Trash2, Plus, ArrowLeft } from "lucide-react"
+import { Trash2, ArrowLeft, RefreshCw, Pencil, Eye, Search, X } from "lucide-react"
 import Link from "next/link"
+import { CreateRepositoryDialog } from "@/components/create-repository-dialog"
+import { EditRepositoryDialog } from "@/components/edit-repository-dialog"
+import { PreviewSyncDialog } from "@/components/preview-sync-dialog"
 
 export default function ProjectDetailPage() {
   const params = useParams()
@@ -17,63 +20,61 @@ export default function ProjectDetailPage() {
 
   const [data, setData] = useState<AppData | null>(null)
   const [project, setProject] = useState<Project | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    name: "",
-    tfsUrl: "",
-    githubUrl: "",
-    tfsCredentialId: "",
-    githubCredentialId: "",
-    syncDirection: "bidirectional" as "tfs-to-github" | "github-to-tfs" | "bidirectional",
-  })
+  const [syncingRepoId, setSyncingRepoId] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
 
   useEffect(() => {
-    const loadedData = loadData()
-    setData(loadedData)
-    const foundProject = loadedData.projects.find((p) => p.id === projectId)
-    setProject(foundProject || null)
+    loadData()
+      .then((loadedData) => {
+        setData(loadedData)
+        const foundProject = loadedData.projects.find((p) => p.id === projectId)
+        setProject(foundProject || null)
+      })
+      .catch(console.error)
   }, [projectId])
 
-  const handleAddRepository = () => {
-    if (
-      project &&
-      form.name.trim() &&
-      form.tfsUrl.trim() &&
-      form.githubUrl.trim() &&
-      form.tfsCredentialId &&
-      form.githubCredentialId
-    ) {
-      addRepository(projectId, {
-        name: form.name,
-        tfsUrl: form.tfsUrl,
-        githubUrl: form.githubUrl,
-        tfsCredentialId: form.tfsCredentialId,
-        githubCredentialId: form.githubCredentialId,
-        syncDirection: form.syncDirection,
-      })
-      setForm({
-        name: "",
-        tfsUrl: "",
-        githubUrl: "",
-        tfsCredentialId: "",
-        githubCredentialId: "",
-        syncDirection: "bidirectional",
-      })
-      setShowForm(false)
-      const updatedData = loadData()
-      setData(updatedData)
-      const updatedProject = updatedData.projects.find((p) => p.id === projectId)
-      setProject(updatedProject || null)
+  const refreshData = async () => {
+    const updatedData = await loadData()
+    setData(updatedData)
+    const updatedProject = updatedData.projects.find((p) => p.id === projectId)
+    setProject(updatedProject || null)
+  }
+
+  const handleDeleteRepository = async (repoId: string) => {
+    if (confirm("Are you sure you want to delete this repository?")) {
+      try {
+        await deleteRepository(projectId, repoId)
+        const updatedData = await loadData()
+        setData(updatedData)
+        const updatedProject = updatedData.projects.find((p) => p.id === projectId)
+        setProject(updatedProject || null)
+      } catch (error) {
+        console.error("Failed to delete repository:", error)
+        alert("Failed to delete repository")
+      }
     }
   }
 
-  const handleDeleteRepository = (repoId: string) => {
-    if (confirm("Are you sure you want to delete this repository?")) {
-      deleteRepository(projectId, repoId)
-      const updatedData = loadData()
-      setData(updatedData)
-      const updatedProject = updatedData.projects.find((p) => p.id === projectId)
-      setProject(updatedProject || null)
+  const handleSyncRepository = async (repoId: string) => {
+    setSyncingRepoId(repoId)
+    try {
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, repositoryId: repoId }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Sync failed")
+      }
+
+      await refreshData()
+      alert("Sync completed successfully!")
+    } catch (error) {
+      console.error("Failed to sync repository:", error)
+      alert("Failed to sync repository. Check the console for details.")
+    } finally {
+      setSyncingRepoId(null)
     }
   }
 
@@ -94,154 +95,173 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="mb-8">
-          {!showForm ? (
-            <Button onClick={() => setShowForm(true)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Repository
-            </Button>
-          ) : (
-            <Card className="p-6">
-              <h2 className="text-lg font-bold text-foreground mb-4">Add New Repository</h2>
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  placeholder="Repository name"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <input
-                  type="text"
-                  placeholder="TFS Repository URL"
-                  value={form.tfsUrl}
-                  onChange={(e) => setForm({ ...form, tfsUrl: e.target.value })}
-                  className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <input
-                  type="text"
-                  placeholder="GitHub Repository URL"
-                  value={form.githubUrl}
-                  onChange={(e) => setForm({ ...form, githubUrl: e.target.value })}
-                  className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-muted-foreground mb-2">TFS Credential</label>
-                    <select
-                      value={form.tfsCredentialId}
-                      onChange={(e) => setForm({ ...form, tfsCredentialId: e.target.value })}
-                      className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="">Select credential</option>
-                      {data.credentials
-                        .filter((c) => c.type === "tfs")
-                        .map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {cred.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-muted-foreground mb-2">GitHub Credential</label>
-                    <select
-                      value={form.githubCredentialId}
-                      onChange={(e) => setForm({ ...form, githubCredentialId: e.target.value })}
-                      className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                      <option value="">Select credential</option>
-                      {data.credentials
-                        .filter((c) => c.type === "github")
-                        .map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {cred.name}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-2">Sync Direction</label>
-                  <select
-                    value={form.syncDirection}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        syncDirection: e.target.value as "tfs-to-github" | "github-to-tfs" | "bidirectional",
-                      })
-                    }
-                    className="w-full px-4 py-2 bg-input border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="bidirectional">Bidirectional</option>
-                    <option value="tfs-to-github">TFS to GitHub</option>
-                    <option value="github-to-tfs">GitHub to TFS</option>
-                  </select>
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={handleAddRepository} className="flex-1">
-                    Add Repository
-                  </Button>
-                  <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1">
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          )}
+          <CreateRepositoryDialog projectId={projectId} credentials={data.credentials} onSuccess={refreshData} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {project.repositories.map((repo) => (
-            <Card key={repo.id} className="p-6">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-bold text-foreground">{repo.name}</h3>
-                  <p className="text-sm text-muted-foreground capitalize">{repo.syncDirection}</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handleDeleteRepository(repo.id)}
-                  className="text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-              <div className="space-y-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground">TFS URL</p>
-                  <p className="text-foreground text-xs break-all">{repo.tfsUrl}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">GitHub URL</p>
-                  <p className="text-foreground text-xs break-all">{repo.githubUrl}</p>
-                </div>
-                {repo.lastSyncAt && (
-                  <div className="pt-2 border-t border-border">
-                    <p className="text-muted-foreground">Last sync: {new Date(repo.lastSyncAt).toLocaleString()}</p>
-                    <p
-                      className={`text-sm font-medium ${
-                        repo.lastSyncStatus === "success"
-                          ? "text-green-400"
-                          : repo.lastSyncStatus === "failed"
-                            ? "text-red-400"
-                            : "text-yellow-400"
-                      }`}
-                    >
-                      Status: {repo.lastSyncStatus}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
+        {/* Search Bar */}
+        <div className="mb-6 relative">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search repositories..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-10 py-2 rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {project.repositories.length === 0 && (
-          <Card className="p-12 text-center">
-            <p className="text-muted-foreground">No repositories yet. Add one to get started!</p>
-          </Card>
-        )}
+        {/* Repositories Grid */}
+        {(() => {
+          const filteredRepos = project.repositories.filter((repo) =>
+            repo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            repo.tfsUrl.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            repo.githubUrl.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+          
+          if (project.repositories.length === 0) {
+            return (
+              <Card className="p-12 text-center">
+                <p className="text-muted-foreground">No repositories yet. Add one to get started!</p>
+              </Card>
+            )
+          }
+
+          if (filteredRepos.length === 0) {
+            return (
+              <Card className="p-12 text-center">
+                <p className="text-muted-foreground">No repositories found matching "{searchQuery}"</p>
+              </Card>
+            )
+          }
+          
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {filteredRepos.map((repo) => {
+                const isSyncing = syncingRepoId === repo.id
+            return (
+              <Card key={repo.id} className="p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground">{repo.name}</h3>
+                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium mt-2 ${
+                      repo.syncDirection === "bidirectional"
+                        ? "bg-purple-500/20 text-purple-600 border border-purple-500/30"
+                        : repo.syncDirection === "tfs-to-github"
+                          ? "bg-blue-500/20 text-blue-600 border border-blue-500/30"
+                          : "bg-orange-500/20 text-orange-600 border border-orange-500/30"
+                    }`}>
+                      {repo.syncDirection === "bidirectional" ? "↔ Bidirectional" : repo.syncDirection === "tfs-to-github" ? "→ TFS to GitHub" : "← GitHub to TFS"}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <EditRepositoryDialog
+                      projectId={projectId}
+                      repository={repo}
+                      credentials={data.credentials}
+                      onSuccess={refreshData}
+                    />
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleDeleteRepository(repo.id)}
+                      className="text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground">TFS URL</p>
+                    <p className="text-foreground text-xs break-all">{repo.tfsUrl}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">GitHub URL</p>
+                    <p className="text-foreground text-xs break-all">{repo.githubUrl}</p>
+                  </div>
+                  
+                  {/* Branch pairs display */}
+                  {(() => {
+                    const branches = repo.branchPairs && repo.branchPairs.length > 0 
+                      ? repo.branchPairs 
+                      : repo.tfsBranch 
+                        ? [{ name: repo.tfsBranch }]
+                        : []
+                    
+                    return branches.length > 0 ? (
+                      <div className="pt-2 border-t border-border">
+                        <p className="text-muted-foreground font-medium mb-2">Synced Branches:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {branches.map((pair, idx) => (
+                            <span key={idx} className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 text-xs font-mono border border-blue-500/20">
+                              {pair.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
+                  
+                  {repo.lastSyncAt && (
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-muted-foreground">Last sync: {new Date(repo.lastSyncAt).toLocaleString()}</p>
+                      <p
+                        className={`text-sm font-medium ${
+                          repo.lastSyncStatus === "success"
+                            ? "text-green-400"
+                            : repo.lastSyncStatus === "failed"
+                              ? "text-red-400"
+                              : "text-yellow-400"
+                        }`}
+                      >
+                        Status: {repo.lastSyncStatus}
+                      </p>
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+                    <PreviewSyncDialog 
+                      repository={repo}
+                      projectId={projectId}
+                      credentials={data.credentials}
+                      trigger={
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                        >
+                          <Eye className="w-4 h-4 mr-2" />
+                          Preview
+                        </Button>
+                      }
+                    />
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleSyncRepository(repo.id)}
+                      disabled={isSyncing}
+                      className="flex-1"
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+                      {isSyncing ? "Syncing..." : "Sync Now"}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            )
+          })}
+            </div>
+          )
+        })()}
       </div>
     </div>
   )

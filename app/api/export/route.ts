@@ -1,22 +1,14 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
+import { loadData } from "@/lib/storage"
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // In a real implementation, this would:
-    // 1. Fetch all data from the database
-    // 2. Format it for export
-    // 3. Return as JSON or CSV
-
+    const data = loadData()
+    
     const exportData = {
       exportedAt: new Date().toISOString(),
       version: "1.0",
-      data: {
-        projects: [],
-        credentials: [],
-        repositories: [],
-        syncLogs: [],
-        scheduledJobs: [],
-      },
+      data,
     }
 
     return NextResponse.json(exportData)

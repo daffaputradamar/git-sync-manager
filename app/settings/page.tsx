@@ -5,21 +5,38 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 
 export default function SettingsPage() {
-  const handleExportData = () => {
-    const data = localStorage.getItem("git-sync-manager-data")
-    const element = document.createElement("a")
-    element.setAttribute("href", "data:text/plain;charset=utf-8," + encodeURIComponent(data || ""))
-    element.setAttribute("download", "git-sync-manager-backup.json")
-    element.style.display = "none"
-    document.body.appendChild(element)
-    element.click()
-    document.body.removeChild(element)
+  const handleExportData = async () => {
+    try {
+      const response = await fetch("/api/export")
+      const data = await response.json()
+      const element = document.createElement("a")
+      element.setAttribute("href", "data:text/plain;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2)))
+      element.setAttribute("download", "git-sync-manager-backup.json")
+      element.style.display = "none"
+      document.body.appendChild(element)
+      element.click()
+      document.body.removeChild(element)
+    } catch (error) {
+      alert("Failed to export data")
+      console.error(error)
+    }
   }
 
-  const handleClearData = () => {
+  const handleClearData = async () => {
     if (confirm("Are you sure you want to clear all data? This cannot be undone.")) {
-      localStorage.removeItem("git-sync-manager-data")
-      window.location.reload()
+      try {
+        const response = await fetch("/api/data", {
+          method: "DELETE",
+        })
+        if (response.ok) {
+          window.location.reload()
+        } else {
+          alert("Failed to clear data")
+        }
+      } catch (error) {
+        alert("Failed to clear data")
+        console.error(error)
+      }
     }
   }
 
