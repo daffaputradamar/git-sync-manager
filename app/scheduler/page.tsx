@@ -95,12 +95,6 @@ export default function SchedulerPage() {
       <Header title="Scheduler" description="Manage automated synchronization schedules" />
 
       <div className="flex-1 overflow-auto p-8">
-        <div className="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-900">
-            💡 <strong>Tip:</strong> Create scheduled jobs from individual project pages for better organization.
-            Or use the form below to create a job (you'll need to specify the project).
-          </p>
-        </div>
 
         <div className="mb-8">
           <CreateSchedulerDialog 
