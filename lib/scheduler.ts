@@ -91,16 +91,19 @@ export function startJob(job: ScheduledJob) {
         }
       }
 
-      // Update job with last run time
+      const allSuccess = syncResults.every((r) => r.success)
+
+      // Update job with last run time and status
       const data = loadData()
       const jobData = data.scheduledJobs.find((j) => j.id === job.id)
       if (jobData) {
         jobData.lastRunAt = new Date().toISOString()
         jobData.nextRunAt = getNextRunTime(job.cronExpression)
+        jobData.lastRunStatus = allSuccess ? "success" : "failed"
+        jobData.runCount = (jobData.runCount || 0) + 1
         saveData(data) // Save updated data
       }
 
-      const allSuccess = syncResults.every((r) => r.success)
       console.log(`[scheduler] Job ${job.name} completed:`, {
         total: syncResults.length,
         success: syncResults.filter((r) => r.success).length,

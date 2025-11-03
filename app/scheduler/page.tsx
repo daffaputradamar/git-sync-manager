@@ -177,11 +177,26 @@ export default function SchedulerPage() {
                       {/* Last run */}
                       {job.lastRunAt && (
                         <div className="flex items-center gap-2 text-sm">
-                          <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                          {job.lastRunStatus === "success" ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          ) : job.lastRunStatus === "failed" ? (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
+                          )}
                           <span className="text-muted-foreground">Last run:</span>
                           <span className="text-foreground">
                             {new Date(job.lastRunAt).toLocaleString()}
                           </span>
+                          {job.lastRunStatus && (
+                            <span className={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${
+                              job.lastRunStatus === "success" 
+                                ? "bg-green-500/10 text-green-700 dark:text-green-400" 
+                                : "bg-red-500/10 text-red-700 dark:text-red-400"
+                            }`}>
+                              {job.lastRunStatus === "success" ? "✓ Success" : "✗ Failed"}
+                            </span>
+                          )}
                         </div>
                       )}
 
