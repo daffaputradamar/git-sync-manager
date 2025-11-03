@@ -1,23 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
-import { repositories, projects, credentials } from "@/lib/db/schema"
+import { repositories, credentials } from "@/lib/db/schema"
 import { eq } from "drizzle-orm"
 import { performSync } from "@/lib/git-sync"
 
 export async function POST(request: NextRequest) {
   try {
-    const { repositoryId, projectId } = await request.json()
+    const { repositoryId } = await request.json()
 
-    if (!repositoryId || !projectId) {
+    if (!repositoryId) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Fetch from database
-    const project = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1)
-    if (!project || project.length === 0) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 })
-    }
-
+    // Fetch repository from database
     const repository = await db.select().from(repositories).where(eq(repositories.id, repositoryId)).limit(1)
     if (!repository || repository.length === 0) {
       return NextResponse.json({ error: "Repository not found" }, { status: 404 })

@@ -70,7 +70,6 @@ export function startJob(job: ScheduledJob) {
             },
             body: JSON.stringify({
               repositoryId: repositoryId,
-              projectId: getProjectIdForRepository(repositoryId),
             }),
           })
 
@@ -155,12 +154,6 @@ export function getNextRunTime(cronExpression: string): string {
     console.error("Failed to parse cron expression:", error)
     return new Date(Date.now() + 3600000).toISOString() // Default to 1 hour from now
   }
-}
-
-function getProjectIdForRepository(repositoryId: string): string | undefined {
-  const data = loadData()
-  const project = data.projects.find((p) => p.repositories.some((r) => r.id === repositoryId))
-  return project?.id
 }
 
 export function isValidCronExpression(expression: string): boolean {

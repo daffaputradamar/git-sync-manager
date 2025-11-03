@@ -54,26 +54,19 @@ export default function SchedulerPage() {
   const handleRunJobNow = async (job: any) => {
     setRunningJobId(job.id)
     try {
-      // Find the project ID for this repository
-      const project = data?.projects.find((p) => 
-        p.repositories.some((r) => r.id === job.repositoryId)
-      )
-      
-      if (!project) {
-        throw new Error("Project not found")
-      }
+      // Run sync for all repositories in this job
+      for (const repositoryId of job.repositoryIds) {
+        const response = await fetch("/api/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            repositoryId 
+          }),
+        })
 
-      const response = await fetch("/api/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          projectId: project.id, 
-          repositoryId: job.repositoryId 
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Sync failed")
+        if (!response.ok) {
+          throw new Error(`Sync failed for repository ${repositoryId}`)
+        }
       }
 
       await refreshData()
