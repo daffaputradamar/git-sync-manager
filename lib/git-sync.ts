@@ -88,7 +88,8 @@ export class GitSyncEngine {
     console.log(`[cloneRepository]   Branch: ${branch}`)
     console.log(`[cloneRepository]   Target path: ${this.repoPath}`)
 
-    await simpleGit().clone(authUrl, this.repoPath, ["--branch", branch, "--single-branch"])
+    // Use shallow clone with depth=1 for faster cloning, --single-branch to reduce data transfer
+    await simpleGit().clone(authUrl, this.repoPath, ["--branch", branch, "--single-branch", "--depth", "1"])
     
     console.log(`[cloneRepository] Clone successful, initializing git object`)
     // Reinitialize git object after cloning
@@ -128,100 +129,25 @@ export class GitSyncEngine {
   async getDiff(fromBranch: string, toBranch: string): Promise<SyncDiff> {
     await this.ensureGitInitialized()
     
-    console.log(`[getDiff] Starting diff comparison:`)
-    console.log(`[getDiff]   fromBranch: ${fromBranch}`)
-    console.log(`[getDiff]   toBranch: ${toBranch}`)
+    console.log(`[getDiff] Comparing: ${fromBranch} → ${toBranch}`)
     
     try {
-      // Log all available branches and refs
       const branches = await this.git!.branch(["-a"])
-      const log = await this.git!.log(["-1", "--oneline"])
-      console.log(`[getDiff] Current HEAD:`, log.latest?.hash, log.latest?.message)
-      console.log(`[getDiff] All available branches:`, branches.all)
       
-      // Normalize branch names - ensure they exist first
-      // If branch doesn't have remote prefix, it's a local branch
+      // Normalize branch names
       const fromRef = fromBranch.includes("/") ? fromBranch : `origin/${fromBranch}`
       const toRef = toBranch.includes("/") ? toBranch : `origin/${toBranch}`
       
-      console.log(`[getDiff] Normalized refs:`)
-      console.log(`[getDiff]   fromRef: ${fromRef}`)
-      console.log(`[getDiff]   toRef: ${toRef}`)
-      
-      // Check if refs exist
-      const refExists = await this.git!.raw(["show-ref"])
-      console.log(`[getDiff] Show-ref output:\n${refExists}`)
-      
-      // Validate that both refs exist
-      const allRefs = refExists.split("\n").map(line => line.split(" ")[1]).filter(Boolean)
-      const fromExists = allRefs.includes(`refs/${fromRef.replace(/\//g, "/")}`) || allRefs.includes(fromRef)
-      const toExists = allRefs.includes(`refs/${toRef.replace(/\//g, "/")}`) || allRefs.includes(toRef)
-      
-      console.log(`[getDiff] Ref validation:`)
-      console.log(`[getDiff]   ${fromRef} exists: ${fromExists}`)
-      console.log(`[getDiff]   ${toRef} exists: ${toExists}`)
-      
-      if (!toExists) {
-        console.warn(`[getDiff] WARNING: Target ref "${toRef}" does not exist!`)
-        console.warn(`[getDiff] Available remotes:`, branches.all)
-        
-        // Try to find a similar branch in the target remote
-        const targetRemoteBranches = branches.all.filter(b => b.startsWith("remotes/target/"))
-        if (targetRemoteBranches.length > 0) {
-          console.warn(`[getDiff] Found branches on target remote:`, targetRemoteBranches)
-          console.warn(`[getDiff] Did you mean one of these instead of "${toBranch}"?`)
-        } else {
-          console.warn(`[getDiff] No branches found on target remote yet (first sync will create the branch)`)
-        }
-        
-        // Return empty diff for non-existent target (branch will be created on push)
-        console.log(`[getDiff] Returning empty diff - target branch will be created during sync`)
-        return {
-          files: [],
-          commits: [],
-        }
+      // Quick check if target branch exists
+      if (!branches.all.includes(toRef)) {
+        console.log(`[getDiff] Target branch doesn't exist yet (first sync)`)
+        return { files: [], commits: [] }
       }
       
-      // Try to use three-dot notation first (merge-base diff)
-      console.log(`[getDiff] Attempting three-dot diff: ${fromRef}...${toRef}`)
-      const diffSummary = await this.git!.diffSummary([`${fromRef}...${toRef}`])
-      const logResult: LogResult = await this.git!.log({ from: fromRef, to: toRef })
-
-      console.log(`[getDiff] Three-dot diff succeeded:`, {
-        filesChanged: diffSummary.files.length,
-        commits: logResult.all.length,
-      })
-
-      return {
-        files: diffSummary.files.map((file) => ({
-          path: file.file,
-          status: this.getFileStatus(file.file, diffSummary.files),
-          additions: "insertions" in file ? file.insertions : 0,
-          deletions: "deletions" in file ? file.deletions : 0,
-        })),
-        commits: logResult.all.map((commit) => ({
-          hash: commit.hash,
-          message: commit.message,
-          author: commit.author_name,
-          date: commit.date,
-        })),
-      }
-    } catch (error) {
-      console.error(`[getDiff] Three-dot diff failed:`, error)
-      
-      // If three-dot fails, try two-dot comparison (direct commit comparison)
+      // Try three-dot diff (preferred)
       try {
-        const fromRef = fromBranch.includes("/") ? fromBranch : `origin/${fromBranch}`
-        const toRef = toBranch.includes("/") ? toBranch : `origin/${toBranch}`
-        
-        console.log(`[getDiff] Attempting two-dot diff: ${fromRef}..${toRef}`)
-        const diffSummary = await this.git!.diffSummary([`${fromRef}..${toRef}`])
-        const logResult: LogResult = await this.git!.log([`${fromRef}..${toRef}`])
-
-        console.log(`[getDiff] Two-dot diff succeeded:`, {
-          filesChanged: diffSummary.files.length,
-          commits: logResult.all.length,
-        })
+        const diffSummary = await this.git!.diffSummary([`${fromRef}...${toRef}`])
+        const logResult: LogResult = await this.git!.log([`${fromRef}...${toRef}`])
 
         return {
           files: diffSummary.files.map((file) => ({
@@ -237,35 +163,30 @@ export class GitSyncEngine {
             date: commit.date,
           })),
         }
-      } catch (fallbackError) {
-        console.error(`[getDiff] Two-dot diff also failed:`, fallbackError)
-        
-        // Try alternative approach: use rev-parse to find actual ref names
-        try {
-          console.log(`[getDiff] Attempting alternative approach with rev-parse`)
-          const status = await this.git!.status()
-          const currentBranch = status.current
-          console.log(`[getDiff] Current branch:`, currentBranch)
-          console.log(`[getDiff] Is detached:`, status.detached)
-          
-          // List all refs
-          const allRefs = await this.git!.raw(["for-each-ref", "--format=%(refname)"])
-          console.log(`[getDiff] All refs:\n${allRefs}`)
-          
-          // If both fail, return empty diff with error context
-          console.error(`[getDiff] Failed to generate diff between ${fromBranch} and ${toBranch}:`, fallbackError)
-          return {
-            files: [],
-            commits: [],
-          }
-        } catch (altError) {
-          console.error(`[getDiff] Alternative approach also failed:`, altError)
-          return {
-            files: [],
-            commits: [],
-          }
+      } catch {
+        // Fallback to two-dot if three-dot fails
+        const diffSummary = await this.git!.diffSummary([`${fromRef}..${toRef}`])
+        const logResult: LogResult = await this.git!.log([`${fromRef}..${toRef}`])
+
+        return {
+          files: diffSummary.files.map((file) => ({
+            path: file.file,
+            status: this.getFileStatus(file.file, diffSummary.files),
+            additions: "insertions" in file ? file.insertions : 0,
+            deletions: "deletions" in file ? file.deletions : 0,
+          })),
+          commits: logResult.all.map((commit) => ({
+            hash: commit.hash,
+            message: commit.message,
+            author: commit.author_name,
+            date: commit.date,
+          })),
         }
       }
+    } catch (error) {
+      console.error(`[getDiff] Failed to generate diff:`, error)
+      // Return empty diff on error - sync will still proceed
+      return { files: [], commits: [] }
     }
   }
 
@@ -584,16 +505,11 @@ export async function performSync(options: SyncOptions): Promise<SyncResult> {
       timestamp: new Date().toISOString(),
     }
   } finally {
-    // Cleanup
+    // Cleanup asynchronously without waiting
     console.log(`[performSync] Cleaning up temporary repository`)
-    setTimeout(async () => {
-      try {
-        await engine["cleanupRepo"]()
-        console.log(`[performSync] Cleanup completed`)
-      } catch (error) {
-        console.error("[performSync] Cleanup error:", error)
-      }
-    }, 5000)
+    engine["cleanupRepo"]().catch((error) => {
+      console.error("[performSync] Cleanup error:", error)
+    })
   }
 }
 
